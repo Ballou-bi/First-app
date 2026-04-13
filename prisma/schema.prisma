@@ -14,4 +14,6 @@ model emploies {
   prenoms String
   email   String
   poste   String
+
+  @@unique([userId, email])
 }

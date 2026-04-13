@@ -61,14 +61,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ✅ Vérifie si l'email existe déjà parmi les employés de cet utilisateur
+    const emailExistant = await prisma.emploies.findFirst({
+      where: { email, userId },
+    });
+
+    if (emailExistant) {
+      return NextResponse.json(
+        { error: "Un employé avec cet email existe déjà" },
+        { status: 409 },
+      );
+    }
+
     const newEmployee = await prisma.emploies.create({
-      data: {
-        userId, // ✅ vient de Clerk, pas du body
-        nom,
-        prenoms,
-        email,
-        poste,
-      },
+      data: { userId, nom, prenoms, email, poste },
     });
 
     return NextResponse.json(newEmployee, { status: 201 });
@@ -92,7 +98,6 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const { id, nom, prenoms, email, poste } = body;
-
     const parsedId = parseInt(id);
 
     if (!parsedId || isNaN(parsedId)) {
@@ -114,10 +119,31 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const updatedEmployee = await prisma.emploies.update({
-      where: { id: parsedId },
+    // ✅ Si on modifie l'email, vérifie qu'il n'est pas déjà pris
+    // par un AUTRE employé du même utilisateur
+    if (email && email !== existingEmployee.email) {
+      const emailDejaUtilise = await prisma.emploies.findFirst({
+        where: {
+          email,
+          userId,
+          NOT: { id: parsedId }, // ← exclut l'employé en cours de modification
+        },
+      });
+
+      if (emailDejaUtilise) {
+        return NextResponse.json(
+          { error: "Un employé avec cet email existe déjà" },
+          { status: 409 },
+        );
+      }
+    }
+
+    const updatedEmployee = await prisma.emploies.updateMany({
+      where: {
+        id: parsedId,
+        userId,
+      },
       data: {
-        // ✅ On ne passe que les champs du modèle, jamais userId
         ...(nom && { nom }),
         ...(prenoms && { prenoms }),
         ...(email && { email }),
@@ -167,8 +193,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const deletedEmployee = await prisma.emploies.delete({
-      where: { id: parsedId },
+    const deletedEmployee = await prisma.emploies.deleteMany({
+      where: {
+        id: parsedId,
+        userId,
+      },
     });
 
     return NextResponse.json(deletedEmployee, { status: 200 });
