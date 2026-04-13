@@ -1,11 +1,9 @@
 "use client";
-// Imports à ajouter en haut
-import { SignOutButton } from "@clerk/nextjs";
-import { LogOut } from "lucide-react";
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
+import { useAuth } from "@clerk/nextjs";
 import {
   Sun,
   Moon,
@@ -20,7 +18,11 @@ import {
   User,
   Hash,
   RefreshCw,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import { SignOutButton } from "@clerk/nextjs";
 
 type Employe = {
   id: number;
@@ -31,6 +33,7 @@ type Employe = {
 };
 
 const formVide = { nom: "", prenoms: "", email: "", poste: "" };
+const ITEMS_PAR_PAGE = 5;
 
 const fields = [
   { label: "Nom", key: "nom", placeholder: "Ex : Dupont", icon: User },
@@ -60,26 +63,21 @@ export default function Dashboard() {
   const [employeEnModif, setEmployeEnModif] = useState<Employe | null>(null);
   const [chargement, setChargement] = useState(true);
   const [dark, setDark] = useState(true);
+  const [pageCourante, setPageCourante] = useState(1);
 
-  // --- Pagination & search
-  const [page, setPage] = useState(1);
-  const [parPage] = useState(5);
-  const [search, setSearch] = useState("");
+  const { isLoaded, isSignedIn } = useAuth();
 
-  // --- Charger la liste
   useEffect(() => {
-    fetch("/api/emploies")
-      .then((res) => {
-        if (!res.ok) throw new Error();
-        return res.json();
-      })
-      .then((data) => {
-        setEmployes(data);
-        toast.success("Liste chargée !");
-      })
-      .catch(() => toast.error("Erreur de chargement"))
-      .finally(() => setChargement(false));
-  }, []);
+    if (isLoaded && isSignedIn) {
+      // eslint-disable-next-line react-hooks/immutability
+      chargerEmployes();
+    }
+  }, [isLoaded, isSignedIn]);
+
+  // ── Pagination ──────────────────────────────────────────────────────────
+  const totalPages = Math.ceil(employes.length / ITEMS_PAR_PAGE);
+  const debut = (pageCourante - 1) * ITEMS_PAR_PAGE;
+  const employesDuPage = employes.slice(debut, debut + ITEMS_PAR_PAGE);
 
   const chargerEmployes = () => {
     setChargement(true);
@@ -90,13 +88,17 @@ export default function Dashboard() {
       })
       .then((data) => {
         setEmployes(data);
-        toast.success("Liste mise à jour !");
+        setPageCourante(1); // ✅ reset à la page 1 après chargement
+        toast.success("Liste chargée !");
       })
-      .catch(() => toast.error("Erreur de chargement"))
-      .finally(() => setChargement(false));
+      .catch(() => {
+        toast.error("Erreur de chargement");
+      })
+      .finally(() => {
+        setChargement(false);
+      });
   };
 
-  // --- CRUD
   const ajouterEmploye = async () => {
     const id = toast.loading("Ajout en cours...");
     const res = await fetch("/api/emploies", {
@@ -155,6 +157,10 @@ export default function Dashboard() {
     });
     if (res.ok) {
       toast.success("🗑️ Employé supprimé !", { id });
+      // ✅ Si on supprime le dernier élément d'une page, on recule d'une page
+      if (employesDuPage.length === 1 && pageCourante > 1) {
+        setPageCourante(pageCourante - 1);
+      }
       chargerEmployes();
     } else {
       const err = await res.json();
@@ -162,19 +168,23 @@ export default function Dashboard() {
     }
   };
 
-  // --- Styles
+  // ── Styles dynamiques ───────────────────────────────────────────────────
   const bg = dark
     ? "bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900"
     : "bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50";
+
   const card = dark
     ? "bg-white/5 backdrop-blur-xl border border-white/10 shadow-xl"
     : "bg-white/80 backdrop-blur-xl border border-amber-200/60 shadow-xl";
+
   const titleColor = dark
     ? "bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent"
     : "bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent";
+
   const inputClass = dark
     ? "w-full bg-slate-800 text-white placeholder-slate-500 border-2 border-slate-600 focus:border-amber-400 focus:outline-none rounded-xl px-4 py-3 text-sm transition-colors duration-200"
     : "w-full bg-white text-slate-900 placeholder-slate-400 border-2 border-amber-300 focus:border-orange-500 focus:outline-none rounded-xl px-4 py-3 text-sm transition-colors duration-200";
+
   const labelColor = dark ? "text-amber-400" : "text-orange-500";
   const textPrimary = dark ? "text-white" : "text-slate-800";
   const textSecondary = dark ? "text-slate-400" : "text-slate-500";
@@ -187,21 +197,20 @@ export default function Dashboard() {
     ? "bg-slate-700 hover:bg-slate-600 text-slate-300"
     : "bg-slate-200 hover:bg-slate-300 text-slate-600";
 
-  // --- Pagination + search
-  const employesFiltres = employes.filter((emp) =>
-    `${emp.nom} ${emp.prenoms} ${emp.email} ${emp.poste}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-  const totalPages = Math.ceil(employesFiltres.length / parPage);
-  const employesPage = employesFiltres.slice(
-    (page - 1) * parPage,
-    page * parPage,
-  );
-
-  // --- Reset page if search change
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setPage(1), [search]);
+  if (!isLoaded) {
+    return (
+      <main className={`${bg} min-h-screen flex items-center justify-center`}>
+        <motion.div
+          animate={{ opacity: [0.4, 1, 0.4] }}
+          transition={{ repeat: Infinity, duration: 1.5 }}
+          className="text-amber-400 text-xl font-bold flex items-center gap-2"
+        >
+          <RefreshCw size={20} className="animate-spin" />
+          Chargement...
+        </motion.div>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -224,14 +233,12 @@ export default function Dashboard() {
         }}
       />
 
-      {/* Décors d'arrière-plan */}
+      {/* Décors */}
       <div className="fixed top-10 left-0 w-72 h-72 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
       <div className="fixed bottom-10 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Toggle dark/light */}
-      {/* Remplace le bouton toggle existant par ce bloc */}
+      {/* Boutons haut à droite */}
       <div className="fixed top-5 right-5 z-50 flex items-center gap-2">
-        {/* Toggle dark/light */}
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.95 }}
@@ -245,7 +252,6 @@ export default function Dashboard() {
           {dark ? <Sun size={20} /> : <Moon size={20} />}
         </motion.button>
 
-        {/* Déconnexion */}
         <SignOutButton>
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -273,14 +279,14 @@ export default function Dashboard() {
           <p
             className={`${textSecondary} mt-1 text-sm flex items-center gap-1`}
           >
-            <Hash size={14} /> {employes.length} employé
-            {employes.length > 1 ? "s" : ""} enregistré
+            <Hash size={14} />
+            {employes.length} employé{employes.length > 1 ? "s" : ""} enregistré
             {employes.length > 1 ? "s" : ""}
           </p>
         </div>
       </motion.div>
 
-      {/* Search + Formulaire */}
+      {/* Formulaire */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -363,13 +369,7 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
-      {/* Liste employés */}
-      <input
-        placeholder="🔍 Rechercher..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className={`${inputClass} mb-4`}
-      />
+      {/* Liste des employés */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -384,21 +384,22 @@ export default function Dashboard() {
           >
             <RefreshCw size={20} className="animate-spin" /> Chargement...
           </motion.div>
-        ) : employesPage.length === 0 ? (
+        ) : employes.length === 0 ? (
           <div
             className={`py-16 text-center ${textSecondary} flex flex-col items-center gap-3`}
           >
-            <Users size={40} className="opacity-30" /> Aucun employé trouvé.
+            <Users size={40} className="opacity-30" />
+            Aucun employé enregistré.
           </div>
         ) : (
           <>
-            {/* Tableau — md+ */}
-            <div className="overflow-x-auto">
+            {/* ── Tableau — md+ ── */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-linear-to-r from-amber-400 to-yellow-300">
                     {[
-                      { label: "ID", icon: Hash },
+                      { label: "N°", icon: Hash },
                       { label: "Nom", icon: User },
                       { label: "Prénoms", icon: User },
                       { label: "Email", icon: Mail },
@@ -418,7 +419,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   <AnimatePresence>
-                    {employesPage.map((emp, i) => (
+                    {employesDuPage.map((emp, i) => (
                       <motion.tr
                         key={emp.id}
                         initial={{ opacity: 0, x: -20 }}
@@ -427,8 +428,9 @@ export default function Dashboard() {
                         transition={{ delay: i * 0.05 }}
                         className={`border-t ${divider} ${rowHover} transition-colors duration-150`}
                       >
+                        {/* ✅ Numérotation continue selon la page */}
                         <td className="px-5 py-4 text-amber-400 font-black">
-                          {(page - 1) * parPage + i + 1}
+                          {debut + i + 1}
                         </td>
                         <td
                           className={`px-5 py-4 font-semibold ${textPrimary}`}
@@ -475,26 +477,133 @@ export default function Dashboard() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div className="flex justify-center items-center gap-2 mt-4 pb-10 md:pb-4">
-              <button
-                onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                disabled={page === 1}
-                className="px-3 py-1 rounded-lg border hover:bg-gray-200 disabled:opacity-50"
-              >
-                Précédent
-              </button>
-              <span>
-                Page {page} / {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                disabled={page === totalPages}
-                className="px-3 py-1 rounded-lg border hover:bg-gray-200 disabled:opacity-50"
-              >
-                Suivant
-              </button>
+            {/* ── Cartes — mobile ── */}
+            <div className={`md:hidden flex flex-col divide-y ${divider}`}>
+              <AnimatePresence>
+                {employesDuPage.map((emp, i) => (
+                  <motion.div
+                    key={emp.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ delay: i * 0.06 }}
+                    className="p-5 flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-400 font-black text-lg flex items-center gap-1">
+                        <Hash size={16} /> {debut + i + 1}
+                      </span>
+                      <span className="bg-amber-400/15 text-amber-400 border border-amber-400/30 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                        <Briefcase size={11} /> {emp.poste}
+                      </span>
+                    </div>
+
+                    <div>
+                      <p
+                        className={`font-bold text-base flex items-center gap-1 ${textPrimary}`}
+                      >
+                        <User size={15} className="text-amber-400 shrink-0" />
+                        {emp.nom} {emp.prenoms}
+                      </p>
+                      <p className="text-sky-400 text-sm mt-1 flex items-center gap-1">
+                        <Mail size={13} /> {emp.email}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => preparerModification(emp)}
+                        className="flex-1 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 border border-amber-400/30 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <Pencil size={13} /> Modifier
+                      </button>
+                      <button
+                        onClick={() => supprimerEmploye(emp.id)}
+                        className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <Trash2 size={13} /> Supprimer
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
+
+            {/* ── Pagination ── */}
+            {totalPages > 1 && (
+              <div
+                className={`flex items-center justify-between px-5 py-4 border-t ${divider}`}
+              >
+                {/* Info pages */}
+                <p className={`text-sm ${textSecondary}`}>
+                  Page{" "}
+                  <span className="text-amber-400 font-bold">
+                    {pageCourante}
+                  </span>{" "}
+                  sur{" "}
+                  <span className="text-amber-400 font-bold">{totalPages}</span>{" "}
+                  — {employes.length} employé{employes.length > 1 ? "s" : ""}
+                </p>
+
+                {/* Boutons navigation */}
+                <div className="flex items-center gap-2">
+                  {/* Précédent */}
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setPageCourante(pageCourante - 1)}
+                    disabled={pageCourante === 1}
+                    className={`p-2 rounded-lg border transition-colors duration-200 ${
+                      pageCourante === 1
+                        ? "opacity-30 cursor-not-allowed border-white/10 text-slate-500"
+                        : dark
+                          ? "border-white/20 text-amber-400 hover:bg-white/10"
+                          : "border-amber-300 text-orange-500 hover:bg-amber-50"
+                    }`}
+                  >
+                    <ChevronLeft size={18} />
+                  </motion.button>
+
+                  {/* Numéros de pages */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                    (page) => (
+                      <motion.button
+                        key={page}
+                        whileHover={{ scale: 1.08 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setPageCourante(page)}
+                        className={`w-9 h-9 rounded-lg text-sm font-bold transition-colors duration-200 ${
+                          page === pageCourante
+                            ? "bg-linear-to-r from-amber-400 to-yellow-300 text-slate-900"
+                            : dark
+                              ? "border border-white/20 text-slate-400 hover:bg-white/10"
+                              : "border border-amber-200 text-slate-500 hover:bg-amber-50"
+                        }`}
+                      >
+                        {page}
+                      </motion.button>
+                    ),
+                  )}
+
+                  {/* Suivant */}
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setPageCourante(pageCourante + 1)}
+                    disabled={pageCourante === totalPages}
+                    className={`p-2 rounded-lg border transition-colors duration-200 ${
+                      pageCourante === totalPages
+                        ? "opacity-30 cursor-not-allowed border-white/10 text-slate-500"
+                        : dark
+                          ? "border-white/20 text-amber-400 hover:bg-white/10"
+                          : "border-amber-300 text-orange-500 hover:bg-amber-50"
+                    }`}
+                  >
+                    <ChevronRight size={18} />
+                  </motion.button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </motion.div>

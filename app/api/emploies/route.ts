@@ -1,13 +1,22 @@
-import prisma from "../../lib/prisma";
+import { prisma } from "../../lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 
-// ✅ LIRE - GET
+// ✅ GET — récupère uniquement les employés de l'utilisateur connecté
 export async function GET() {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
   try {
-    const employees = await prisma.emploies.findMany();
+    const employees = await prisma.emploies.findMany({
+      where: { userId },
+    });
     return NextResponse.json(employees, { status: 200 });
   } catch (error) {
-    console.error("Failed to fetch employees:", error);
+    console.error(error);
     return NextResponse.json(
       { error: "Failed to fetch employees" },
       { status: 500 },
@@ -15,13 +24,18 @@ export async function GET() {
   }
 }
 
-// ✅ AJOUTER - POST
+// ✅ POST — crée un employé lié à l'utilisateur connecté
 export async function POST(request: NextRequest) {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { nom, prenoms, email, poste } = body;
 
-    // Validation complète de tous les champs
     if (!nom || typeof nom !== "string") {
       return NextResponse.json(
         { error: "Le nom est requis et doit être une chaîne de caractères" },
@@ -48,26 +62,37 @@ export async function POST(request: NextRequest) {
     }
 
     const newEmployee = await prisma.emploies.create({
-      data: { nom, prenoms, email, poste },
+      data: {
+        userId, // ✅ vient de Clerk, pas du body
+        nom,
+        prenoms,
+        email,
+        poste,
+      },
     });
 
     return NextResponse.json(newEmployee, { status: 201 });
   } catch (error) {
-    console.error("Failed to create employee:", error);
+    console.error(error);
     return NextResponse.json(
-      { error: "Impossible de creer un emploiyés, verifier vos information " },
+      { error: "Failed to create employee" },
       { status: 500 },
     );
   }
 }
 
-// ✅ MODIFIER - PATCH
+// ✅ PATCH — modifie uniquement un employé appartenant à l'utilisateur
 export async function PATCH(request: NextRequest) {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
-    const { id, ...data } = body;
+    const { id, nom, prenoms, email, poste } = body;
 
-    // ✅ CORRECTION : parseInt() car l'id vient du JSON en string parfois
     const parsedId = parseInt(id);
 
     if (!parsedId || isNaN(parsedId)) {
@@ -77,9 +102,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // ✅ AJOUT : vérifier que l'employé existe avant de modifier
-    const existingEmployee = await prisma.emploies.findUnique({
-      where: { id: parsedId },
+    // ✅ Vérifie que l'employé appartient bien à cet utilisateur
+    const existingEmployee = await prisma.emploies.findFirst({
+      where: { id: parsedId, userId },
     });
 
     if (!existingEmployee) {
@@ -91,12 +116,18 @@ export async function PATCH(request: NextRequest) {
 
     const updatedEmployee = await prisma.emploies.update({
       where: { id: parsedId },
-      data,
+      data: {
+        // ✅ On ne passe que les champs du modèle, jamais userId
+        ...(nom && { nom }),
+        ...(prenoms && { prenoms }),
+        ...(email && { email }),
+        ...(poste && { poste }),
+      },
     });
 
     return NextResponse.json(updatedEmployee, { status: 200 });
   } catch (error) {
-    console.error("Failed to update employee:", error);
+    console.error(error);
     return NextResponse.json(
       { error: "Failed to update employee" },
       { status: 500 },
@@ -104,13 +135,17 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// ✅ SUPPRIMER - DELETE
+// ✅ DELETE — supprime uniquement un employé appartenant à l'utilisateur
 export async function DELETE(request: NextRequest) {
+  const { userId } = await auth();
+
+  if (!userId) {
+    return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { id } = body;
-
-    // ✅ CORRECTION : même logique que PATCH
     const parsedId = parseInt(id);
 
     if (!parsedId || isNaN(parsedId)) {
@@ -120,9 +155,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // ✅ AJOUT : vérifier que l'employé existe avant de supprimer
-    const existingEmployee = await prisma.emploies.findUnique({
-      where: { id: parsedId },
+    // ✅ Vérifie que l'employé appartient bien à cet utilisateur
+    const existingEmployee = await prisma.emploies.findFirst({
+      where: { id: parsedId, userId },
     });
 
     if (!existingEmployee) {
@@ -138,7 +173,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json(deletedEmployee, { status: 200 });
   } catch (error) {
-    console.error("Failed to delete employee:", error);
+    console.error(error);
     return NextResponse.json(
       { error: "Failed to delete employee" },
       { status: 500 },
